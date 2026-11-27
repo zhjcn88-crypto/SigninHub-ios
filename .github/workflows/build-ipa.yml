@@ -91,7 +91,10 @@ jobs:
         if: ${{ github.event.inputs.skip_checks != 'true' }}
         run: |
           set -euo pipefail
-          pip3 install --quiet pbxproj || echo "pbxproj 装不上，跳过该项（不影响构建）"
+          # Homebrew 的 python3 是 externally-managed，直接 pip install 会报错。
+          # pbxproj 只用于离线校验 pbxproj 语义，装不上就跳过那一项，不影响构建。
+          python3 -m pip install --quiet --user --break-system-packages pbxproj 2>/dev/null \
+            || echo "pbxproj 未安装，check_pbxproj 会自动跳过"
           python3 verify/run_all.py
 
       # ── 构建 ──────────────────────────────────────────────────

@@ -129,14 +129,31 @@ _ios_boot.prepare_server()
 PORT = 18960
 threading.Thread(target=lambda: S.serve(host="127.0.0.1", port=PORT),
                  daemon=True).start()
-time.sleep(3)
+
+# 不能固定 sleep：CI 的 runner 上解释器 import + 建库 + 绑端口明显更慢，
+# 固定 3 秒会假失败。改成轮询直到 /api/ping 通（最多 40 秒）。
+import urllib.request as _ur  # noqa: E402
+
+def _wait_ready(timeout=40.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with _ur.urlopen(f"http://127.0.0.1:{PORT}/api/ping", timeout=3) as resp:
+                if resp.status == 200:
+                    return True
+        except Exception:
+            pass
+        time.sleep(0.5)
+    return False
+
+r.check("后端在 40 秒内就绪", _wait_ready())
 
 for p in ("/api/ping", "/api/status", "/"):
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{PORT}{p}", timeout=6) as resp:
+        with _ur.urlopen(f"http://127.0.0.1:{PORT}{p}", timeout=10) as resp:
             st = resp.status
-    except Exception:
-        st = "ERR"
+    except Exception as e:
+        st = f"ERR:{e}"
     r.check(f"模拟包内 {p} 可用", st == 200, str(st))
 
 sys.exit(r.finish())

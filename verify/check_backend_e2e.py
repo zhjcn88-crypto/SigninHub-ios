@@ -43,7 +43,23 @@ PORT = 18901
 BASE = f"http://127.0.0.1:{PORT}"
 threading.Thread(target=lambda: S.serve(host="127.0.0.1", port=PORT),
                  daemon=True).start()
-time.sleep(3)
+
+
+def wait_ready(timeout=40.0):
+    """轮询直到服务就绪。固定 sleep 在 CI runner 上会假失败。"""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(f"{BASE}/api/ping", timeout=3) as resp:
+                if resp.status == 200:
+                    return True
+        except Exception:
+            pass
+        time.sleep(0.5)
+    return False
+
+
+r.check("后端在 40 秒内就绪", wait_ready())
 
 
 def call(path, method="GET", body=None, headers=None):
