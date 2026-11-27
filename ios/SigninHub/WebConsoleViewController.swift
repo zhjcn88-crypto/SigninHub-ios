@@ -33,6 +33,12 @@ final class WebConsoleViewController: UIViewController {
         view.backgroundColor = UIColor(red: 0.04, green: 0.04, blue: 0.06, alpha: 1.0)
         setupWebView()
         setupPlaceholder()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appWillEnterForeground),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
         startPolling()
     }
 
@@ -137,6 +143,36 @@ final class WebConsoleViewController: UIViewController {
 
     // MARK: - 生命周期
 
+    /// 回到前台时自愈。
+    ///
+    /// iOS 会在内存压力下回收 WKWebView 的 WebContent 进程，回来时是一片白屏，
+    /// 而 Python 服务可能还在（也可能因为 App 被挂起太久而需要重启）。
+    /// 这里不假设状态，直接重走一次「等服务 → 加载页面」。
+    @objc private func appWillEnterForeground() {
+        if webView.url == nil || webView.isHidden {
+            didLoadConsole = false
+            attempts = 0
+            startPolling()
+            return
+        }
+        // 页面在，但内容可能是空壳：探一下再决定要不要重载
+        var request = URLRequest(url: kPingURL)
+        request.timeoutInterval = 2
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
+            guard let self else { return }
+            let ok = (response as? HTTPURLResponse)?.statusCode == 200
+                && (data?.contains(Data("ok".utf8)) ?? false)
+            if !ok {
+                DispatchQueue.main.async {
+                    self.didLoadConsole = false
+                    self.attempts = 0
+                    self.startPolling()
+                }
+            }
+        }.resume()
+    }
+
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         if isMovingFromParent { pollTimer?.invalidate() }
@@ -144,6 +180,7 @@ final class WebConsoleViewController: UIViewController {
 
     deinit {
         pollTimer?.invalidate()
+        NotificationCenter.default.removeObserver(self)
     }
 }
 

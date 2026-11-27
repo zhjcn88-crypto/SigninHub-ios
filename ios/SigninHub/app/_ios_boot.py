@@ -161,11 +161,48 @@ def bootstrap():
 INFO = bootstrap()
 
 
+def register_app_packages():
+    """把 app_packages 按「site 目录」注册，从而支持 .pth 文件。
+
+    为什么不能只把 app_packages 塞进 sys.path：
+      一些纯 Python 包依赖 .pth 做路径注入（例如拆成多目录的发行版、
+      或者带 `import` 语句的 .pth）。直接把目录放进 sys.path 会跳过
+      .pth 处理，这类包就会「装上了但 import 不到」。
+      site.addsitedir() 正是标准库处理这件事的入口。
+
+    做法与 CPython 官方 iOS 范式一致：先 addsitedir(app_packages)，
+    再把 app/ 放到 sys.path 前面（我们的代码优先级高于第三方包）。
+    """
+    import os
+    import site
+    import sys
+
+    res = os.path.dirname(os.path.abspath(__file__))
+    pkgs = os.path.join(res, "app_packages")
+    app = res
+
+    if os.path.isdir(pkgs):
+        try:
+            site.addsitedir(pkgs)
+        except Exception as e:      # .pth 内容有语法错也不能让 App 起不来
+            print("[ios_boot] addsitedir(%s) 失败: %s" % (pkgs, e))
+
+    # 确保 app/ 在最前（app_packages 里若有同名模块不应遮蔽我们的代码）
+    if app in sys.path:
+        sys.path.remove(app)
+    sys.path.insert(0, app)
+
+    return {"app": app, "app_packages": pkgs if os.path.isdir(pkgs) else None}
+
 def prepare_server():
-    """在 serve() 之前调用：清老口令 + 关掉自动生成。幂等。"""
+    """在 serve() 之前调用：清老口令 + 关掉自动生成 + 注册 site 目录。幂等。"""
     _clear_existing_token(os.environ.get("SIGNBOT_DATA"))
     ok = _disable_token_autogen()
     INFO["token_autogen_disabled"] = ok
+    try:
+        INFO["site"] = register_app_packages()
+    except Exception as e:
+        INFO["site_error"] = str(e)
     return ok
 
 

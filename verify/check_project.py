@@ -79,6 +79,32 @@ for rel in ("signbot/vault.py", "signbot/qoder.py"):
             "iOS 移植补丁" in t and "\nfrom ctypes import wintypes\n" not in head)
 r.check("_ios_boot 有 prepare_server",
         "def prepare_server" in (APP / "app" / "_ios_boot.py").read_text(encoding="utf-8"))
+r.check("_ios_boot 用 site.addsitedir 注册 app_packages（支持 .pth）",
+        "addsitedir" in (APP / "app" / "_ios_boot.py").read_text(encoding="utf-8"))
+
+# WKWebView 自愈：从后台回前台 / WebContent 被回收后要能恢复
+webvc = (APP / "WebConsoleViewController.swift").read_text(encoding="utf-8")
+r.check("WebConsole 处理回前台自愈", "willEnterForeground" in webvc,
+        "后台回来可能白屏")
+r.check("WebConsole 支持重新加载", webvc.count("startPolling()") >= 2)
+
+# Swift/ObjC 花括号平衡 + 无重复方法（重复定义会直接编译失败）
+for name in ("WebConsoleViewController.swift", "BackgroundKeeper.swift",
+             "CheckinScheduler.swift", "AppDelegate.swift",
+             "LoadingViewController.swift"):
+    src = (APP / name).read_text(encoding="utf-8")
+    r.check(f"{name} 花括号平衡",
+            src.count("{") == src.count("}"),
+            f"{{={src.count('{')} }}={src.count('}')}")
+    # 同一函数名在同一文件里重复定义（delegate 重载参数不同，按签名去重）
+    sigs = re.findall(r"^\s*(?:override func|@objc private func|private func|func)\s+(\w+)\(", src, re.M)
+    dupes = {n for n in sigs if sigs.count(n) > 1 and n not in ("webView",)}
+    r.check(f"{name} 无重复方法定义", not dupes, str(sorted(dupes)))
+
+mainm_src = (APP / "main.m").read_text(encoding="utf-8")
+r.check("main.m 花括号平衡",
+        mainm_src.count("{") == mainm_src.count("}"),
+        f"{{={mainm_src.count('{')} }}={mainm_src.count('}')}")
 
 # ---- 7) Python 标准库与扩展模块
 if HAS_RUNTIME:
@@ -110,6 +136,9 @@ r.check("main.m 接入 _ios_boot", "_ios_boot" in mainm)
 r.check("main.m 调 prepare_server", "prepare_server" in mainm)
 r.check("main.m 释放 GIL（否则后台唤醒死锁）",
         "PyEval_SaveThread" in mainm and "PyEval_RestoreThread" in mainm)
+r.check("main.m 有崩溃重启逻辑（serve 挂掉不至于永久白屏）",
+        "kMaxRestarts" in mainm, "缺少有界重启")
+r.check("main.m 引入 unistd.h（sleep 需要）", "unistd.h" in mainm)
 
 # 只看非注释代码：注释里出现 use_system_logger 是说明文字，不算错误
 _code_lines = [ln for ln in mainm.splitlines()

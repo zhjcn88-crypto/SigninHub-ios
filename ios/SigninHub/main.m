@@ -17,6 +17,7 @@
 #import <Python/Python.h>
 #import <pthread.h>
 #import <string.h>
+#import <unistd.h>     // sleep()：服务崩溃后的退避重启要用
 
 static char gErrorBuffer[8192];
 
@@ -219,9 +220,32 @@ static void *SigninHubPythonMain(void *unused) {
         // 后续本线程自己的调用都要重新 Ensure/Release。
         PyThreadState *tstate = PyEval_SaveThread();
 
-        PyGILState_STATE gil = PyGILState_Ensure();
-        SigninHubRunServer();          // 阻塞（serve_forever）
-        PyGILState_Release(gil);
+        // serve_forever() 正常不会返回；一旦返回或抛异常（端口被占、
+        // 磁盘满、上游数据损坏……），App 就永久白屏 —— 用户只能杀进程重开。
+        // 这里做有界重试：退避后重启服务，超过上限才放弃。
+        const int kMaxRestarts = 5;
+        int attempt = 0;
+        while (attempt <= kMaxRestarts) {
+            PyGILState_STATE gil = PyGILState_Ensure();
+            int rc = SigninHubRunServer();     // 阻塞（serve_forever）
+            PyGILState_Release(gil);
+
+            if (rc == 0) {
+                // 正常退出（理论上不会发生）
+                NSLog(@"[SigninHub] serve() 正常返回，退出服务线程");
+                break;
+            }
+
+            attempt++;
+            if (attempt > kMaxRestarts) {
+                NSLog(@"[SigninHub] 服务连续失败 %d 次，放弃重启", attempt - 1);
+                break;
+            }
+            // 1s, 2s, 4s, 8s, 16s 退避
+            int delay = 1 << (attempt - 1);
+            NSLog(@"[SigninHub] 服务异常退出，%d 秒后第 %d 次重启", delay, attempt);
+            sleep((unsigned int)delay);
+        }
 
         PyEval_RestoreThread(tstate);
         Py_Finalize();
