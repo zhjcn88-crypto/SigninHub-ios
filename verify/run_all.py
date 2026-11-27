@@ -24,6 +24,7 @@ SUITES = [
     ("C ↔ Python 调用契约", "check_contract.py", False),
     ("shell 脚本静态审查", "check_shell.py", False),
     ("后端端到端（HTTP/API/CSRF）", "check_backend_e2e.py", False),
+    ("请求路径性能（不能卡）", "check_perf.py", False),
     ("安装包结构（路径与扩展模块）", "check_bundle.py", True),
     ("IPA 打包结构（TrollStore 要求）", "check_ipa.py", True),
 ]

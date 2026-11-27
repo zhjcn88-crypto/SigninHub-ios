@@ -1529,17 +1529,15 @@ class Handler(BaseHTTPRequestHandler):
         return self._send_json({"error": "not found"}, 404)
 
 
-def _lan_ips() -> set:
-    """
-    本机所有 IPv4 地址（含回环）。
+_LAN_CACHE = {"ts": 0.0, "ips": {"127.0.0.1"}}
+_LAN_CACHE_TTL = 300.0          # 5 分钟刷新一次足够（地址变动是低频事件）
+_LAN_PROBE_BUDGET = 0.2         # 单次探测最多 0.2 秒，超时就先用保守结果
+_LAN_LOCK = threading.Lock()
+_LAN_PROBING = {"on": False}
 
-    原来只有 `_lan_ip()` 返回**一个**地址（靠 `connect(("8.8.8.8", 80))` 猜出口网卡），
-    多网卡机器（WiFi + 有线 + Hyper-V/VMware 虚拟网卡）上手机连的那个 IP
-    未必是它选中的那个 → Host 校验 403，整个后端不可用（BUGS-v2.40 的 P2-2）。
 
-    这里枚举全部地址而不是退回单 IP：单 IP 写法会让多网卡 403 立刻回来，
-    而「枚举 + 只用于 Host/本机 Origin 判定」既能修功能又不开安全口子。
-    """
+def _probe_lan_ips() -> set:
+    """真正去问系统要本机地址。只允许在后台线程调用。"""
     out = {"127.0.0.1"}
     try:
         for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
@@ -1551,6 +1549,7 @@ def _lan_ips() -> set:
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
+            s.settimeout(_LAN_PROBE_BUDGET)
             s.connect(("8.8.8.8", 80))
             out.add(s.getsockname()[0])
         finally:
@@ -1558,6 +1557,60 @@ def _lan_ips() -> set:
     except Exception:
         pass
     return out
+
+
+def _refresh_lan_ips_async() -> None:
+    """后台刷新，绝不阻塞请求线程。"""
+    with _LAN_LOCK:
+        if _LAN_PROBING["on"]:
+            return
+        _LAN_PROBING["on"] = True
+
+    def _work():
+        try:
+            ips = _probe_lan_ips()
+            with _LAN_LOCK:
+                _LAN_CACHE["ips"] = ips
+                _LAN_CACHE["ts"] = time.time()
+        finally:
+            with _LAN_LOCK:
+                _LAN_PROBING["on"] = False
+
+    try:
+        threading.Thread(target=_work, name="lan-probe", daemon=True).start()
+    except Exception:
+        with _LAN_LOCK:
+            _LAN_PROBING["on"] = False
+
+
+def _lan_ips() -> set:
+    """本机所有 IPv4 地址（含回环）。**带缓存，不阻塞请求路径。**
+
+    iOS 移植补丁：原实现每次调用都做 getaddrinfo(gethostname) 与
+    connect(8.8.8.8)，在 macOS / iOS / 受限网络下会挂住几十秒，
+    而这个函数每个 HTTP 请求都会被 _private_host() 与 _origin_ok() 调到。
+    现在改成：读缓存 → 过期就丢给后台线程刷新 → 立刻返回旧值。
+    """
+    now = time.time()
+    with _LAN_LOCK:
+        ips = set(_LAN_CACHE["ips"])
+        fresh = (now - _LAN_CACHE["ts"]) < _LAN_CACHE_TTL
+    if not fresh:
+        _refresh_lan_ips_async()
+    # 保证回环永远在集合里（_refresh 失败时也不会误判本机请求）
+    ips.add("127.0.0.1")
+    return ips
+
+
+def warm_lan_ips() -> None:
+    """启动时预热：让首个真实请求不必等探测。
+
+    在 serve() 里、绑定端口之后调用。只丢后台线程，不阻塞启动。
+    """
+    with _LAN_LOCK:
+        stale = (time.time() - _LAN_CACHE["ts"]) >= _LAN_CACHE_TTL
+    if stale:
+        _refresh_lan_ips_async()
 
 
 def _lan_ip() -> str:
@@ -1609,6 +1662,9 @@ def serve(host: str = None, port: int = None):
     host = host or cfg["server"].get("host", "0.0.0.0")
     port = port or cfg["server"].get("port", 8787)
     db.init_db()
+    # iOS 移植补丁：启动即预热本机地址缓存，
+    # 免得首个请求还要等 getaddrinfo 探测。
+    warm_lan_ips()
     from .scheduler import Scheduler
     sched = Scheduler()
     sched.start()

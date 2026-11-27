@@ -91,6 +91,11 @@ rm -rf "${DST}/signbot/tools" 2>/dev/null || true
 # ---- 平台补丁（必需：否则 import signbot 直接失败）
 "${PYBIN}" "${ROOT}/scripts/patch_ios.py" "${DST}"
 
+# ---- _lan_ips 缓存补丁（必需：否则每个请求卡数十秒）
+# 原实现每次请求都做 getaddrinfo(gethostname) + connect(8.8.8.8)，
+# 在 macOS / iOS / 受限网络下会挂住整个请求处理线程。
+"${PYBIN}" "${ROOT}/scripts/patch_lan_ips.py" "${DST}"
+
 # ---- 生成运行时引导
 "${PYBIN}" "${ROOT}/scripts/make_boot.py" "${DST}"
 
@@ -122,6 +127,11 @@ for rel in ("signbot/vault.py", "signbot/qoder.py"):
 boot = dst / "_ios_boot.py"
 assert boot.is_file(), "_ios_boot.py 缺失"
 assert "prepare_server" in boot.read_text(encoding="utf-8")
+
+# 4) _lan_ips 补丁到位（否则每个请求卡数十秒）
+srv_src = (dst / "signbot/server.py").read_text(encoding="utf-8")
+assert "_LAN_CACHE_TTL" in srv_src, "_lan_ips 缓存补丁未应用"
+assert "warm_lan_ips" in srv_src, "warm_lan_ips 未注入"
 
 # 4) 关键后端文件齐全
 for rel in ("signbot/server.py", "signbot/runner.py", "signbot/config.py",
