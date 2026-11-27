@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+<meta name="theme-color" content="#0a0b10" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="签到中心" />
+<link rel="manifest" href="/manifest.webmanifest" />
+<link rel="apple-touch-icon" href="/static/icon-180.png" />
+<link rel="icon" href="/static/icon-192.png" />
+<title>签到中心</title>
+<link rel="stylesheet" href="/static/app.css?v=295" />
+</head>
+<body>
+  <div class="reveal-mask" id="revealMask"><span></span></div>
+  <div class="fatal-error" id="fatalError" hidden></div>
+
+  <div class="app">
+
+    <!-- 吸顶导航栏：滚动时由透明渐变为毛玻璃，收纳飞入的大标题（居中） -->
+    <header class="appbar" id="appbar">
+      <div class="ab-inner">
+        <!-- 设置页左上角返回（用户 m15092）：必须放在 appbar 里 —— 放 hero 里会被
+             固定导航栏的 .ab-inner 盖住，点不到（appbar z-index:25 拦截指针事件）。 -->
+        <button class="theme-entry prefs-back" id="prefsBack" type="button" aria-label="返回配置" hidden>
+          <svg viewBox="0 0 24 24" fill="none" width="20" height="20" aria-hidden="true">
+            <path d="M15 5 L8 12 L15 19" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <h1 class="ab-title" id="viewTitle">签到中心</h1>
+        <!-- 用户 m14411：右上角原「主题」按钮改成齿轮，点它直接进配置页；
+             齿轮只在非配置页出现（已经在配置页就没有意义）。 -->
+        <button class="theme-entry gear-entry" id="gearEntry" aria-label="配置" title="配置">
+          <svg viewBox="0 0 24 24" fill="none" width="20" height="20" aria-hidden="true">
+            <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" stroke="currentColor" stroke-width="1.7"/>
+            <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.36a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.64 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1Z" stroke="currentColor" stroke-width="1.2"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- 下拉刷新余额：全站通用的悬浮指示器（任意 tab 顶部下拉都会出现） -->
+    <div class="ptr" id="ptr" aria-hidden="true">
+      <span class="ptr-spin"></span><span class="ptr-text" id="ptrText">下拉刷新余额</span>
+    </div>
+
+    <!-- 全站提示条（用户 m13478）：所有 toast 统一挪到「下拉后余额显示」的这块顶部区域。
+         弹出：从中间向左右扩散 + 由模糊转清晰；消失：文字雾化，像烟一样往上散掉。 -->
+    <div class="hint" id="hint" role="status" aria-live="polite">
+      <span class="hint-txt" id="hintText" data-text=""></span>
+    </div>
+
+    <!-- N2 / P2R3（BUGS-v2.2）：凭据失效横幅放在 appbar 之后、所有 view 之外。
+         以前它嵌在 #viewSettings 里，只有停在设置页才看得见 —— 用户停在首页时
+         界面照旧显示「未配置」，完全不知道要重新登录。现在它是全局浮层，
+         任何 tab 都能看到，点「知道了」后本次会话内不再弹。 -->
+    <div class="creds-alert" id="credsAlert" hidden>
+      <b>系统密钥已变更，请重新填写凭据</b>
+      <span id="credsAlertSub">本机加密密钥丢失（换机 / 清数据 / 移除锁屏密码都会导致），旧凭据已无法解密。为免覆盖仍完好的密文，程序保留了原值未删除 —— 重新登录或重填一次即可恢复。</span>
+      <button class="creds-alert-x" id="credsAlertClose" type="button">知道了</button>
+    </div>
+
+    <!-- ================= 签到 ================= -->
+    <main class="view" id="viewHome">
+      <section class="hero hero-home" id="heroHome">
+        <div class="hero-img">
+          <span class="hi-blob b1"></span><span class="hi-blob b2"></span><span class="hi-blob b3"></span>
+          <svg class="hi-rings" viewBox="0 0 240 240" aria-hidden="true">
+            <circle cx="120" cy="120" r="54" /><circle cx="120" cy="120" r="78" />
+            <circle cx="120" cy="120" r="102" />
+          </svg>
+          <span class="hi-grain"></span>
+        </div>
+        <div class="hero-shade"></div>
+        <div class="hero-head">
+          <p class="hero-kicker">DAILY CHECK-IN</p>
+          <h1 class="hero-title">签到中心</h1>
+          <p class="hero-sub" id="dayLabel">加载中…</p>
+        </div>
+      </section>
+
+      <div class="view-body">
+        <div class="progress-hero">
+          <div class="ring-wrap">
+            <svg class="ring" viewBox="0 0 120 120">
+              <circle class="ring-bg" cx="60" cy="60" r="52"/>
+              <circle class="ring-fg" id="ringFg" cx="60" cy="60" r="52"/>
+            </svg>
+            <div class="ring-center">
+              <span class="ring-num" id="ringNum">0</span><span class="ring-pct">%</span>
+              <span class="ring-cap" id="ringCap">0 / 3 已签</span>
+            </div>
+          </div>
+          <div class="hero-info">
+            <div class="streak"><span id="streakNum">0</span><small>天连续</small></div>
+            <p id="heroHint">连续签到可保持积分增长</p>
+          </div>
+        </div>
+
+        <div class="conn-error" id="connError" hidden>
+          <strong>连不上电脑端</strong>
+          <p id="connErrorMsg">请确认电脑端已启动，且手机与电脑在同一网络。</p>
+          <button class="ghost-btn" id="retryBtn">重试</button>
+        </div>
+
+        <section class="stack-wrap">
+          <div class="stack" id="stack"></div>
+          <button class="onekey" id="oneKey">
+            <span class="ok-ico"><svg viewBox="0 0 24 24" fill="none"><path d="M4 12.5 L9.5 18 L20 6" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="ok-text">一键全部签到</span>
+          </button>
+        </section>
+
+        <section class="panel week-panel">
+          <div class="panel-head"><h2>最近 7 天</h2></div>
+          <div class="week-rail" id="weekRail"><div class="week-track" id="weekTrack"></div></div>
+          <svg class="week-line" id="weekLine"></svg>
+        </section>
+
+        <section class="panel" id="assetPanel">
+          <div class="panel-head"><h2>积分资产</h2><span class="muted small" id="assetState">未查询</span></div>
+          <div class="asset-grid" id="assetGrid"></div>
+          <!-- 用户 m14411：双击卡片进入「单 AGENT 多账号宫格」；再双击 / 切 tab 退出 -->
+          <div class="asset-multi" id="assetMulti" hidden>
+            <div class="am-head">
+              <span class="am-title" id="assetMultiTitle">多账号</span>
+              <button class="am-exit" id="assetMultiExit" type="button">退出</button>
+            </div>
+            <div class="asset-grid am-grid" id="assetMultiGrid"></div>
+          </div>
+          <div id="assetGroups" style="margin-top:10px"></div>
+          <p class="muted small" id="assetExpiring" style="margin:8px 0 0"></p>
+          <div class="row-btns" style="margin-top:10px">
+            <button class="ghost-btn" id="refreshAssets">刷新余额</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>WorkBuddy 成长中心</h2>
+            <span class="muted small" id="growthState">未查询</span>
+          </div>
+          <!-- 用户 m14411：成长中心支持切换本机保存的其它 WB 账号 -->
+          <div class="growth-acct" id="growthAcctBar">
+            <button class="growth-acct-btn" id="growthAcctSwitch" type="button">
+              <span class="ga-dot"></span>
+              <span class="ga-name" id="growthAcctName">当前账号</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <button class="growth-acct-add" id="growthAcctManage" type="button">管理</button>
+          </div>
+          <p class="muted small">每日任务 / 连登兑换 / 补登卡 / 抽奖 / 盲盒，一键跑完。</p>
+          <div id="growthTasks" class="growth-list"></div>
+          <div class="row-btns" style="margin-top:10px">
+            <button class="ghost-btn" id="growthLoad">查看任务</button>
+            <button class="save-btn" id="growthRun">一键完成</button>
+          </div>
+          <div class="row-btns" style="margin-top:8px">
+            <button class="ghost-btn" id="growthClaim">领取奖励</button>
+            <button class="ghost-btn" id="growthDailyRun">每日任务全跑</button>
+          </div>
+          <div id="growthResult" class="muted small" style="margin-top:10px"></div>
+        </section>
+
+        <!-- 豆包「做任务领额度」面板已下线并移除（2026-11-20 服务端 710010702 风控封禁；
+             V2.25 清理时把这个空壳 section 一并删掉）。恢复方式见 docs/DOUBAO.md。 -->
+      </div>
+    </main>
+
+    <!-- ================= 统计（雷达头图） ================= -->
+    <main class="view" id="viewStats" hidden>
+      <section class="hero hero-stats" id="heroStats">
+        <div class="hero-img">
+          <svg class="st-net" viewBox="0 0 360 220" aria-hidden="true">
+            <g class="st-grid" fill="none" stroke="rgba(140,255,214,.28)" stroke-width="1">
+              <circle cx="185" cy="105" r="28"/><circle cx="185" cy="105" r="48"/>
+              <circle cx="185" cy="105" r="68"/><circle cx="185" cy="105" r="88"/>
+              <path d="M185,17 V193 M97,105 H273 M123,43 L247,167 M123,167 L247,43"/>
+            </g>
+            <path class="st-sweep" fill="rgba(120,220,255,.16)" stroke="rgba(140,220,255,.5)" stroke-width="1.2"
+              d="M185,105 L185,40 A65,65 0 0 1 244,80 Z"/>
+            <circle class="st-dot d1" cx="250" cy="70" r="4" fill="#8affd6"/>
+            <circle class="st-dot d2" cx="130" cy="150" r="3.2" fill="#9db0ff"/>
+            <circle class="st-dot d3" cx="285" cy="140" r="3" fill="#ffcf5c"/>
+          </svg>
+        </div>
+        <div class="hero-shade"></div>
+        <div class="hero-head">
+          <p class="hero-kicker">STATISTICS</p>
+          <h1 class="hero-title">统计</h1>
+          <p class="hero-sub">热力图 · 趋势 · 勋章 · 年度报告</p>
+        </div>
+      </section>
+
+      <div class="view-body">
+        <!-- 数字卡 -->
+        <section class="num-cards" id="numCards"></section>
+
+        <!-- 签到热力图（GitHub 风格，近半年） -->
+        <section class="panel">
+          <div class="panel-head"><h2>签到热力图</h2><span class="muted small" id="hmSummary"></span></div>
+          <!-- 用户 m14411：「看不懂」→ 加一句人话说明 + 图例带文字 + 点格子看当天详情 -->
+          <p class="muted small hm-help" id="hmHelp">每一列是一周，每一格是一天；格子越绿＝那天签到的服务越多。点格子看当天详情。</p>
+          <div class="hm-scroll"><div class="heatmap" id="heatmap"></div></div>
+          <div class="hm-legend">
+            <span class="muted small">少</span>
+            <i class="hm-cell lv0"></i><i class="hm-cell lv1"></i><i class="hm-cell lv2"></i><i class="hm-cell lv3"></i><i class="hm-cell lv4"></i>
+            <span class="muted small">多</span>
+            <span class="hm-legend-txt muted small" id="hmLegendTxt">0 个 / 1 个 / 2 个 / 3 个 / 全部</span>
+          </div>
+          <div class="hm-detail" id="hmDetail" hidden></div>
+        </section>
+
+        <!-- 趋势图 -->
+        <section class="panel">
+          <div class="panel-head"><h2>近 30 天完成趋势</h2></div>
+          <div class="trend-box"><svg id="trendSvg" preserveAspectRatio="none"></svg></div>
+          <div class="trend-x"><span id="trendFrom"></span><span id="trendTo"></span></div>
+        </section>
+
+        <!-- 勋章墙 -->
+        <section class="panel">
+          <div class="panel-head"><h2>勋章墙</h2><span class="muted small" id="badgeSummary"></span></div>
+          <div class="badge-wall" id="badgeWall"></div>
+        </section>
+
+        <!-- 年度报告 -->
+        <section class="panel">
+          <div class="panel-head"><h2>年度报告</h2><span class="muted small" id="yrRange"></span></div>
+          <div id="annualBody"></div>
+          <button class="ghost-btn yr-share" id="yrShare">生成分享文案</button>
+        </section>
+      </div>
+    </main>
+
+    <!-- ================= 记录（日历头图） ================= -->
+    <main class="view" id="viewLogs" hidden>
+      <section class="hero hero-logs" id="heroLogs">
+        <div class="hero-img">
+          <div class="cal-card">
+            <div class="cal-top"><span class="cal-yr">2026</span><span class="cal-mo" id="calMonth">11月</span></div>
+            <div class="cal-grid" id="calGrid"></div>
+          </div>
+        </div>
+        <div class="hero-shade"></div>
+        <div class="hero-head">
+          <p class="hero-kicker">CALENDAR</p>
+          <h1 class="hero-title">记录</h1>
+          <p class="hero-sub">本月足迹 · 每日签到日历</p>
+        </div>
+      </section>
+
+      <div class="view-body">
+        <section class="panel">
+          <div class="panel-head"><h2>本月完成</h2><span class="muted" id="statMonth"></span></div>
+          <div class="stat-rows" id="statRows"></div>
+        </section>
+        <section class="panel">
+          <div class="panel-head"><h2>签到记录</h2><span class="muted" id="logStats"></span></div>
+          <div class="chips" id="logFilters">
+            <button class="chip active" data-p="">全部</button>
+            <button class="chip" data-p="workbuddy">WorkBuddy</button>
+            <button class="chip" data-p="traesolo">Trae Solo</button>
+            <button class="chip" data-p="qoder">Qoder CN</button>
+            <button class="chip" data-p="minimax">MiniMax Code</button>
+            <button class="chip" data-p="huawei">华为码道</button>
+            <button class="chip" data-p="zhipu">智谱清言</button>
+            <button class="chip" data-p="qianfan">百度千帆</button>
+          </div>
+          <div class="log-list" id="logList"></div>
+        </section>
+      </div>
+    </main>
+
+    <!-- ================= 设置（星轨头图） ================= -->
+    <main class="view" id="viewSettings" hidden>
+      <section class="hero hero-settings" id="heroSettings">
+        <div class="hero-img">
+          <svg class="set-net" viewBox="0 0 360 220" aria-hidden="true">
+            <g class="set-lines" stroke="rgba(150,170,255,.35)" stroke-width="1" fill="none">
+              <path d="M70,150 L150,70 L250,120 L320,60" />
+              <path d="M150,70 L210,160 L320,150" />
+              <path d="M70,150 L160,180 L250,120" />
+            </g>
+            <g class="set-nodes" fill="#9db0ff">
+              <circle cx="70" cy="150" r="4.5"/><circle cx="150" cy="70" r="3.2"/>
+              <circle cx="250" cy="120" r="5"/><circle cx="320" cy="60" r="3"/>
+              <circle cx="210" cy="160" r="3.5"/><circle cx="160" cy="180" r="2.6"/>
+              <circle cx="320" cy="150" r="4"/>
+            </g>
+            <g class="set-gear" transform="translate(300 168)" stroke="rgba(150,170,255,.5)" stroke-width="1.6" fill="none">
+              <circle cx="0" cy="0" r="16"/><circle cx="0" cy="0" r="6"/>
+              <path d="M0,-24 V-16 M0,16 V24 M-24,0 H-16 M16,0 H24 M-17,-17 L-11,-11 M11,11 L17,17 M17,-17 L11,-11 M-11,11 L-17,17"/>
+            </g>
+          </svg>
+        </div>
+        <div class="hero-shade"></div>
+        <div class="hero-head">
+          <p class="hero-kicker">CONTROL</p>
+          <h1 class="hero-title">配置</h1>
+          <p class="hero-sub">连接 · 规则 · 通知</p>
+        </div>
+        <!-- 用户 m14411：主题按键已被顶栏齿轮取代；主题改在下方「外观」面板里选，
+             水滴宠物也在本页底部。这里不再放主题按钮。 -->
+      </section>
+
+      <div class="view-body">
+        <section class="panel">
+          <div class="panel-head"><h2>连接电脑端</h2><span class="conn-dot" id="connDot"></span></div>
+          <label class="field">服务地址
+            <input id="serverUrl" placeholder="http://192.168.1.100:8787" />
+          </label>
+          <p class="muted small">手机与电脑需同一网络。留空表示使用当前页面地址。</p>
+          <label class="field" style="margin-top:10px">API Token<input id="apiToken" type="password" placeholder="电脑端启动时会打印一个口令" /></label>
+          <button class="save-btn" id="saveConn">保存并连接</button>
+          <p class="muted small">口令只保存在当前标签页（关掉浏览器即失效），不写入本地长期存储。</p>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head"><h2>访问口令</h2><span class="muted small" id="tokenState"></span></div>
+          <p class="muted small">设置后，同一局域网的其他人打开也不能乱点你的签到。</p>
+          <label class="field" style="margin-top:10px">新口令<input id="newToken" type="password" placeholder="至少 6 位，留空表示不改" /></label>
+          <div class="row-btns">
+            <button class="ghost-btn" id="clearToken">清除口令</button>
+            <button class="save-btn" id="saveToken">保存口令</button>
+          </div>
+        </section>
+
+        <section class="panel" id="thPanel">
+          <!-- 用户 m06523：加了智谱/千帆后一共 7 行，太长 → 默认折叠，点标题展开。
+               折叠容器与「通知」「自动签到」共用同一套 .fold + foldToggle()，
+               手感/配色/动画完全一致。 -->
+          <div class="panel-head notify-head" id="thToggle">
+            <h2>Token 健康</h2>
+            <div class="nh-right">
+              <span class="muted small" id="thState"></span>
+              <svg class="pv-caret" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+          </div>
+          <div class="fold" id="thFold">
+          <div class="fold-inner">
+          <div class="token-health" id="tokenHealth"></div>
+          <div class="row-btns" style="margin-top:10px">
+            <button class="ghost-btn" id="refreshAssets2">刷新余额</button>
+          </div>
+          <p class="muted small">Trae 有 session 时会自动续期 token；WorkBuddy refreshToken 同样自动续期；智谱的 refresh_token 不轮换，每次签到前自动换一次 access_token。</p>
+          </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head"><h2>签到配置</h2><span class="muted small" id="readySummary"></span></div>
+          <p class="muted small">配置好后点「测试」会真的执行一次签到（不写入记录）。</p>
+          <div id="providerEditors"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head"><h2>每日自动签到</h2><label class="switch"><input type="checkbox" id="autoOn"><span></span></label></div>
+          <p class="muted small">设置后每天到点自动签到（需电脑端常开）。时间和随机浮动默认锁定，点「设置定时」一起解锁后再调。</p>
+          <div class="time-wheel" id="timeWheelBox">
+            <div class="tw-display" id="twDisplay">08:30</div>
+            <div class="wheels">
+              <div class="wheel" id="hourWheel"></div>
+              <div class="wheel-colon">:</div>
+              <div class="wheel" id="minWheel"></div>
+              <div class="wheel-focus"></div>
+            </div>
+            <div class="tw-lock" id="twLock">
+              <span class="tw-lock-ico">🔒</span>
+              <span>已锁定，点下方「设置定时」解锁</span>
+            </div>
+          </div>
+          <div class="sched-btns">
+            <button class="sched-edit" id="editSched">设置定时</button>
+            <button class="save-btn sched-save" id="saveSched">保存定时</button>
+          </div>
+          <div class="field jitter-field locked" id="jitterField" style="margin-top:14px">
+            <div class="jitter-head">
+              <span class="jitter-label">随机浮动<span class="jitter-lock" id="jitterLock">🔒 已锁定</span></span>
+              <span class="jitter-val"><b id="jitterVal">30</b> 分钟</span>
+            </div>
+            <input type="range" id="schedJitter" min="0" max="240" step="5" value="30" disabled />
+            <div class="jitter-scale"><span>准点</span><span>2 小时</span><span>4 小时</span></div>
+          </div>
+          <p class="muted small" style="margin:0">到点后在 <b>0~N 分钟</b>内随机执行，避免每天同一分钟打卡。设 0 就是准点。随机浮动跟滚轮一起锁定，点「设置定时」后一起解锁。</p>
+        </section>
+
+        <section class="panel" id="notifyPanel">
+          <div class="panel-head notify-head" id="notifyToggle">
+            <h2>通知</h2>
+            <div class="nh-right">
+              <span class="muted small" id="notifySummary">未配置</span>
+              <svg class="pv-caret" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+          </div>
+          <div class="fold" id="notifyFold">
+          <div class="fold-inner">
+          <label class="field">通知类型
+            <!-- 自绘下拉（用户 m20782）：WebView 里原生 select 弹的是系统灰直角列表，
+                 CSS 改不到。这里套一层 .sel：select 保留（JS 仍读 #notifyKind.value），
+                 视觉上换成 .sel-btn，点击弹底部选择器。 -->
+            <div class="sel" data-title="通知类型">
+              <button type="button" class="sel-btn"><span class="sel-txt">企业微信群机器人</span><i class="sel-caret">▾</i></button>
+              <select id="notifyKind">
+                <option value="wecom">企业微信群机器人</option>
+                <option value="dingtalk">钉钉群机器人</option>
+                <option value="feishu">飞书群机器人</option>
+                <option value="pushplus">PushPlus（推个人微信）</option>
+                <option value="serverchan">Server酱（推个人微信）</option>
+                <option value="bark">Bark（推 iOS）</option>
+                <option value="wxpusher">WxPusher（推微信服务号）</option>
+                <option value="generic">通用 / 自建</option>
+              </select>
+            </div>
+          </label>
+          <label class="field">Webhook 地址<input id="webhook" placeholder="粘贴群机器人 Webhook 完整地址" /></label>
+          <label class="field" id="notifySecretWrap" hidden>钉钉加签密钥（可选）
+            <input id="notifySecret" placeholder="SEC 开头的加签密钥；机器人没开加签就留空" />
+          </label>
+          <p class="muted small" id="notifyHint" style="margin:0 0 10px"></p>
+          <div class="row-btns">
+            <button class="ghost-btn" id="testNotify">测试通知</button>
+            <button class="save-btn" id="saveNotify">保存</button>
+          </div>
+          <div id="notifyResult" class="muted small" style="margin-top:10px"></div>
+          </div>
+          </div>
+        </section>
+
+        <section class="panel" id="autoPanel">
+          <!-- 用户 m14411：自动签到状态默认收起，点标题栏下拉全部信息 -->
+          <div class="panel-head notify-head" id="autoToggle">
+            <h2>自动签到状态</h2>
+            <div class="nh-right">
+              <span class="muted small" id="autoStateTag"></span>
+              <svg class="pv-caret" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+          </div>
+          <div class="fold" id="autoFold">
+          <div class="fold-inner">
+          <div id="autoDiag" class="auto-diag"></div>
+          <div class="row-btns" style="margin-top:10px">
+            <button class="ghost-btn" id="autoRefresh">刷新</button>
+            <button class="ghost-btn" id="autoRunNow">立即跑一次</button>
+          </div>
+          <p class="muted small" style="margin:8px 0 0">「上次运行」为空说明后台任务一次都没跑起来 —— 多半是系统省电策略杀掉了 WorkManager，去系统设置给本应用「允许后台运行 / 不限制耗电」。</p>
+          </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head"><h2>高级</h2></div>
+          <p class="muted small">浏览器模式需电脑端安装 Playwright，并用 <code>python tools/login.py 服务名</code> 捕获登录态；详见 docs/REAL_CHECKIN.md。</p>
+          <div class="row-btns">
+            <button class="ghost-btn" id="refreshAll2">刷新状态</button>
+          </div>
+        </section>
+
+      </div>
+    </main>
+
+    <!-- ================= 设置（用户 m15092：齿轮进的是这个独立页面，不是「配置」页） ================= -->
+    <main class="view" id="viewPrefs" hidden>
+      <section class="hero hero-settings" id="heroPrefs">
+        <div class="hero-img">
+          <svg class="set-net" viewBox="0 0 360 220" aria-hidden="true">
+            <g class="set-lines" stroke="rgba(150,170,255,.35)" stroke-width="1" fill="none">
+              <path d="M60,60 L140,130 L240,80 L330,140" />
+              <path d="M140,130 L200,190 L300,170" />
+              <path d="M60,60 L120,30 L240,80" />
+            </g>
+            <g class="set-nodes" fill="#9db0ff">
+              <circle cx="60" cy="60" r="4.5"/><circle cx="140" cy="130" r="3.2"/>
+              <circle cx="240" cy="80" r="5"/><circle cx="330" cy="140" r="3"/>
+              <circle cx="200" cy="190" r="3.5"/><circle cx="120" cy="30" r="2.6"/>
+              <circle cx="300" cy="170" r="4"/>
+            </g>
+            <g class="set-gear" transform="translate(60 176)" stroke="rgba(150,170,255,.5)" stroke-width="1.6" fill="none">
+              <circle cx="0" cy="0" r="16"/><circle cx="0" cy="0" r="6"/>
+              <path d="M0,-24 V-16 M0,16 V24 M-24,0 H-16 M16,0 H24 M-17,-17 L-11,-11 M11,11 L17,17 M17,-17 L11,-11 M-11,11 L-17,17"/>
+            </g>
+          </svg>
+        </div>
+        <div class="hero-shade"></div>
+        <div class="hero-head">
+          <p class="hero-kicker">PREFERENCES</p>
+          <h1 class="hero-title">设置</h1>
+          <p class="hero-sub">外观 · 后台 · 说明 · 宠物 · 关于</p>
+        </div>
+      </section>
+
+      <div class="view-body">
+        <section class="panel" id="guidePanel">
+          <div class="panel-head">
+            <h2>使用说明</h2>
+            <span class="muted small" id="guideState"></span>
+          </div>
+          <p class="muted small">每个 AGENT 的登录方式与签到原理。配置页只放字段，说明都在这里。</p>
+          <div id="guideList"></div>
+        </section>
+
+        <section class="panel" id="bgPanel">
+          <div class="panel-head">
+            <h2>后台可靠性</h2>
+            <span class="muted small" id="bgState"></span>
+          </div>
+          <p class="muted small">这三项决定「息屏后能不能准点签到」。系统不给权限时，定时会被推迟到几小时后，甚至当天不跑。</p>
+          <div id="bgList"></div>
+          <p class="muted small" style="margin:10px 0 0">已改为系统级精确定时（AlarmManager），不再依赖 WorkManager 的延迟队列，Doze 状态下也能准点唤醒。</p>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head"><h2>外观</h2><span class="muted small" id="themeState"></span></div>
+          <p class="muted small">挑一个顺眼的主题，换肤即时生效。</p>
+          <div class="theme-grid" id="themeGrid"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head"><h2>水滴宠物</h2><span class="muted small" id="petSummary"></span></div>
+          <div class="pet-card" id="petCard"></div>
+          <label class="mini-switch" style="margin-top:10px">
+            <input type="checkbox" id="petFloat"><span></span>
+            <span>在签到页显示宠物浮标</span>
+          </label>
+        </section>
+
+        <section class="panel about-panel">
+          <div class="about-brand">SigninHub<span class="about-dot">·</span>签到中心</div>
+          <p class="about-ver" id="verLine">版本 —</p>
+          <p class="about-line">制作人：<b>AY·Dylan</b></p>
+          <p class="about-line">联系邮箱：<a href="mailto:ayanguser23@outlook.com">ayanguser23@outlook.com</a></p>
+          <p class="about-line">GitHub：<a href="https://github.com/Ayanguser" target="_blank" rel="noopener">Ayanguser</a></p>
+          <p class="about-line">开源协议：<b>CC BY-NC-SA 4.0</b>（<a href="https://github.com/Ayanguser/SigninHub/blob/main/LICENSE" target="_blank" rel="noopener">查看全文</a>）</p>
+          <p class="about-line">本软件及二创作品禁止商用；修改、二创须以相同协议署名开源。商业授权请联系作者。</p>
+        </section>
+      </div>
+    </main>
+
+    <nav class="tabbar">
+      <!-- 水滴胶囊：选中项背后的色块，切换时拉伸流动 -->
+      <span class="tab-pill" id="tabPill" aria-hidden="true"></span>
+      <button class="tab active" data-view="home">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M3 11.5 12 4l9 7.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.5 10v9h13v-9" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>签到</span>
+      </button>
+      <button class="tab" data-view="logs">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
+        <span>记录</span>
+      </button>
+      <button class="tab" data-view="stats">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M4 19h16" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M7 19v-6M12 19V7M17 19v-9" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
+        <span>统计</span>
+      </button>
+      <button class="tab" data-view="settings">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" stroke="currentColor" stroke-width="1.8"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.36a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.64 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1Z" stroke="currentColor" stroke-width="1.3"/></svg>
+        <span>配置</span>
+      </button>
+    </nav>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <div class="theme-sheet-mask" id="themeMask" hidden>
+    <div class="theme-sheet" id="themeSheet">
+      <div class="ts-head"><h2>主题</h2><button class="ts-close" id="themeClose">✕</button></div>
+      <p class="muted small">深色系护眼，浅色系清爽；三套主题随时切换。</p>
+      <div class="theme-grid" id="themeGridSheet"></div>
+    </div>
+  </div>
+  <div id="petFloatBtn" hidden></div>
+  <canvas id="confettiCv"></canvas>
+<script src="/static/app.js?v=295"></script>
+</body>
+</html>

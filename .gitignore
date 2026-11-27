@@ -1,0 +1,24 @@
+# ---- Python 运行时（112 MB，由 scripts/fetch_python.sh 下载）----
+ios/Python.xcframework/
+.cache/
+
+# ---- 构建产物 ----
+build/
+DerivedData/
+*.ipa
+*.xcarchive
+
+# ---- 上游源码（由 scripts/prepare_app.sh 或 CI 拉取）----
+vendor/
+
+# ---- 生成的 app/ 可由 prepare_app.sh 重建，但保留以便直接构建 ----
+
+# ---- 系统 / 编辑器 ----
+.DS_Store
+__pycache__/
+*.pyc
+*.swp
+.vscode/
+.idea/
+xcuserdata/
+*.xcuserstate

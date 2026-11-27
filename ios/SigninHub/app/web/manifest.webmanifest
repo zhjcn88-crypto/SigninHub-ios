@@ -1,0 +1,16 @@
+{
+  "name": "签到中心",
+  "short_name": "签到",
+  "description": "豆包 / WorkBuddy / Trae Solo 每日签到打卡",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0b10",
+  "theme_color": "#0a0b10",
+  "icons": [
+    { "src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -1,0 +1,141 @@
+name: Build unsigned IPA
+
+# 产出 TrollStore 可安装的无签名 .ipa。
+# 无需 Apple 证书 / 描述文件 / Apple ID。
+#
+# 手动触发后，在 Actions 页面下载 Artifact 即为 .ipa；
+# 若打 tag（v*），还会自动创建 Release 附件。
+
+on:
+  workflow_dispatch:
+    inputs:
+      signinhub_ref:
+        description: "上游 SigninHub 的分支/标签/提交（默认 main）"
+        required: false
+        default: "main"
+      skip_checks:
+        description: "跳过自检（不建议）"
+        type: boolean
+        required: false
+        default: false
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build SigninHub iOS
+    runs-on: macos-14
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          echo "iOS SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
+          echo "Swift: $(swift --version 2>&1 | head -n1)"
+          python3 --version
+
+      # ── 上游后端 ──────────────────────────────────────────────
+      - name: Fetch upstream SigninHub backend
+        env:
+          REF: ${{ github.event.inputs.signinhub_ref || 'main' }}
+        run: |
+          set -euo pipefail
+          mkdir -p vendor
+          # 分支用 refs/heads/，标签用 refs/tags/，40 位 SHA 直接用裸哈希。
+          if printf '%s' "$REF" | grep -Eq '^[0-9a-f]{40}$'; then
+            URL="https://codeload.github.com/Ayanguser/SigninHub/tar.gz/${REF}"
+          elif printf '%s' "$REF" | grep -Eq '^v?[0-9]'; then
+            URL="https://codeload.github.com/Ayanguser/SigninHub/tar.gz/refs/tags/${REF}"
+          else
+            URL="https://codeload.github.com/Ayanguser/SigninHub/tar.gz/refs/heads/${REF}"
+          fi
+          echo "下载: $URL"
+          if ! curl -fL --retry 4 --retry-delay 2 "$URL" -o /tmp/upstream.tar.gz; then
+            echo "▸ 探测失败，回退 refs/heads/${REF}"
+            curl -fL --retry 4 \
+              "https://codeload.github.com/Ayanguser/SigninHub/tar.gz/refs/heads/${REF}" \
+              -o /tmp/upstream.tar.gz
+          fi
+          rm -rf /tmp/upstream && mkdir -p /tmp/upstream
+          tar -xzf /tmp/upstream.tar.gz -C /tmp/upstream --strip-components=1
+          test -d /tmp/upstream/backend/signbot || { echo "上游包里没有 backend/signbot" >&2; exit 1; }
+          rm -rf vendor/SigninHub && mkdir -p vendor/SigninHub
+          cp -R /tmp/upstream/backend vendor/SigninHub/backend
+          echo "上游 backend: $(find vendor/SigninHub/backend -type f | wc -l | tr -d ' ') 个文件"
+
+      # ── CPython 运行时 ────────────────────────────────────────
+      - name: Fetch CPython for iOS
+        run: |
+          chmod +x scripts/*.sh
+          ./scripts/fetch_python.sh
+
+      # ── 生成 app/ ─────────────────────────────────────────────
+      - name: Prepare app payload (patches + boot module)
+        env:
+          SIGNINHUB_SRC: ${{ github.workspace }}/vendor/SigninHub/backend
+        run: ./scripts/prepare_app.sh
+
+      # ── 自检（构建前门禁）────────────────────────────────────
+      - name: Self-check before build
+        if: ${{ github.event.inputs.skip_checks != 'true' }}
+        run: |
+          set -euo pipefail
+          pip3 install --quiet pbxproj || echo "pbxproj 装不上，跳过该项（不影响构建）"
+          python3 verify/run_all.py
+
+      # ── 构建 ──────────────────────────────────────────────────
+      - name: Build unsigned IPA
+        run: ./scripts/build_unsigned_ipa.sh
+
+      - name: Collect artifacts
+        run: |
+          set -euo pipefail
+          ls -la build/*.ipa
+          shasum -a 256 build/*.ipa | tee build/SHA256SUMS.txt
+          mkdir -p out
+          cp build/*.ipa out/
+          cp build/SHA256SUMS.txt out/
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: SigninHub-unsigned-ipa
+          path: out/*
+          if-no-files-found: error
+          retention-days: 30
+
+      # 构建失败时把关键日志带出来，省得用户对着红叉猜
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: build/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Attach to release (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*.ipa
+          name: SigninHub iOS ${{ github.ref_name }}
+          body: |
+            无签名 IPA，供 TrollStore 安装。
+
+            **安装步骤**
+            1. 把 `.ipa` 传到 iPhone（隔空投送 / 文件 App / 网盘均可）
+            2. 用 TrollStore 打开它
+            3. 点 **Install**
+
+            无需越狱、无需证书、无需 Apple ID。
+
+            首次启动需要 5–15 秒初始化 Python 运行时，之后 1–2 秒。
