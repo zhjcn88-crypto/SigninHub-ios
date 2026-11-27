@@ -28,7 +28,10 @@ permissions:
 jobs:
   build:
     name: Build SigninHub iOS
-    runs-on: macos-14
+    # 用 macos-latest 而不是 macos-14：
+    # 实测在新账号上 macos-14 拿不到 runner（jobs 显示 steps: 0、
+    # runner_name 为空、状态直接 cancelled），而 macos-latest 正常。
+    runs-on: macos-latest
     timeout-minutes: 45
 
     steps:
