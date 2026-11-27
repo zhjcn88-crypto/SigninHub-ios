@@ -1,0 +1,193 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8787,
+    "api_token": "",
+    "allow_lan_console": false,
+    "lan_origins": []
+  },
+  "scheduler": {
+    "enabled": true,
+    "times": [
+      "09:15"
+    ],
+    "timezone_offset_hours": 8,
+    "jitter_min": 30,
+    "run_on_start": false
+  },
+  "notify": {
+    "enabled": true,
+    "kind": "wecom",
+    "webhook_url": "",
+    "secret": ""
+  },
+  "providers": {
+    "workbuddy": {
+      "enabled": true,
+      "mode": "wb",
+      "wb": {
+        "region": "cn",
+        "accessToken": "",
+        "refreshToken": "",
+        "uid": "",
+        "uin": "",
+        "enterpriseId": "",
+        "domain": ""
+      },
+      "http": {
+        "method": "POST",
+        "url": "https://www.codebuddy.cn/v2/billing/meter/daily-checkin",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "WORKBUDDY_TOKEN"
+        },
+        "body": {},
+        "body_type": "json",
+        "success_expr": "code",
+        "success_value": 0
+      },
+      "browser": {
+        "login_url": "WORKBUDDY_LOGIN_URL",
+        "sign_url": "WORKBUDDY_SIGN_URL",
+        "click_selectors": [
+          "text=签到",
+          "text=打卡"
+        ],
+        "headless": true,
+        "storage_state": "workbuddy_state.json"
+      }
+    },
+    "traesolo": {
+      "enabled": true,
+      "mode": "trae",
+      "trae": {
+        "region": "cn",
+        "host": "",
+        "token": "",
+        "deviceId": "",
+        "session": ""
+      },
+      "http": {
+        "method": "POST",
+        "url": "TRAESOLO_SIGN_URL",
+        "headers": {
+          "Content-Type": "application/json",
+          "Cookie": "TRAESOLO_COOKIE"
+        },
+        "body": {
+          "task": "checkin"
+        },
+        "body_type": "json",
+        "success_expr": "code",
+        "success_value": 0
+      },
+      "browser": {
+        "login_url": "TRAESOLO_LOGIN_URL",
+        "sign_url": "TRAESOLO_SIGN_URL",
+        "click_selectors": [
+          "text=签到",
+          "text=打卡"
+        ],
+        "headless": true,
+        "storage_state": "traesolo_state.json"
+      }
+    },
+    "qoder": {
+      "enabled": false,
+      "mode": "qoder",
+      "qoder": {
+        "region": "cn",
+        "token": "",
+        "refreshToken": "",
+        "uid": "",
+        "machineId": "",
+        "proxy": ""
+      },
+      "http": {
+        "method": "GET",
+        "url": "https://openapi.qoder.com.cn/sash/api/v1/me/campaigns?clientType=10",
+        "headers": {
+          "Authorization": "Bearer QODER_TOKEN",
+          "Cosy-ClientType": "10"
+        },
+        "body": {},
+        "body_type": "json",
+        "success_expr": "claimable",
+        "success_value": true
+      },
+      "browser": {
+        "login_url": "https://qoder.cn/device/selectAccounts",
+        "sign_url": "https://qoder.cn",
+        "click_selectors": [
+          "text=领取",
+          "text=Claim"
+        ],
+        "headless": true,
+        "storage_state": "qoder_state.json"
+      }
+    },
+    "minimax": {
+      "enabled": false,
+      "mode": "minimax",
+      "minimax": {
+        "accessToken": "",
+        "refreshToken": "",
+        "userId": "",
+        "deviceId": "",
+        "uuid": "",
+        "proxy": ""
+      },
+      "http": {
+        "method": "POST",
+        "url": "https://agent.minimax.cn/minimax-cloud/api/v1/signin/claim",
+        "headers": {
+          "Authorization": "Bearer MINIMAX_TOKEN"
+        },
+        "body": {},
+        "body_type": "json",
+        "success_expr": "base_resp.status_code",
+        "success_value": 0
+      },
+      "browser": {
+        "login_url": "https://agent.minimax.cn/",
+        "sign_url": "https://agent.minimax.cn/",
+        "click_selectors": [
+          "text=签到",
+          "text=Check in"
+        ],
+        "headless": true,
+        "storage_state": "minimax_state.json"
+      }
+    },
+    "huawei": {
+      "enabled": true,
+      "mode": "huawei",
+      "huawei": {
+        "cookie": "",
+        "portalCookie": "",
+        "proxy": ""
+      },
+      "http": {
+        "method": "GET",
+        "url": "https://devcloud.cn-north-4.huaweicloud.com/chat/PromptCenterService/v1/ops/delivery?channel=WEB",
+        "headers": {
+          "Cookie": "HUAWEI_COOKIE"
+        },
+        "body": {},
+        "body_type": "json",
+        "success_expr": "code",
+        "success_value": 0
+      },
+      "browser": {
+        "login_url": "https://devcloud.cn-north-4.huaweicloud.com/chat/home",
+        "sign_url": "https://devcloud.cn-north-4.huaweicloud.com/chat/home",
+        "click_selectors": [
+          "text=领取",
+          "text=签到"
+        ],
+        "headless": true,
+        "storage_state": "huawei_state.json"
+      }
+    }
+  }
+}
