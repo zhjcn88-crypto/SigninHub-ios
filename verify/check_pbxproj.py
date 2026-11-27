@@ -6,6 +6,7 @@ HEADER_SEARCH_PATHS 没指到 Python headers —— 这些都要到编译期才�
 """
 from __future__ import annotations
 
+import re
 import sys
 
 from _common import APP, PBX, XCFW, Report, require
@@ -89,6 +90,22 @@ print("  Frameworks:", fw, " Embed:", em)
 r.check("Python.xcframework 已链接", any("Python.xcframework" in p for p in fw))
 r.check("Python.xcframework 已 Embed", any("Python.xcframework" in p for p in em),
         "没 Embed 的话运行时会找不到 dylib")
+
+# xcframework 的 path 必须相对 SRCROOT(=ios/) 正确解析。
+# 真实构建里报过：
+#   error: There is no XCFramework found at '.../SigninHub-ios/Python.xcframework'
+# 因为写成了 ../Python.xcframework（少了一层 ios/）。
+xcfw_refs = re.findall(
+    r'/\* Python\.xcframework \*/ = \{isa = PBXFileReference;[^}]*path = ([^;]+);',
+    PBX.read_text(encoding="utf-8"))
+print("  xcframework path:", xcfw_refs)
+if xcfw_refs:
+    raw = xcfw_refs[0].strip().strip('"')
+    resolved = (PBX.parent.parent / raw).resolve()   # PBX 在 ios/SigninHub.xcodeproj/
+    r.check(f"xcframework 路径可解析（{raw} → {resolved.name}）",
+            resolved == (PBX.parent.parent / "Python.xcframework").resolve(),
+            f"实际解析到 {resolved}")
+    r.check("xcframework 解析结果存在", resolved.exists(), str(resolved))
 
 for ph in target.buildPhases:
     obj = proj.objects[ph]
